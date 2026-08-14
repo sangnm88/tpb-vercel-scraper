@@ -1,4 +1,4 @@
-const cloudflareScraper = require('cloudflare-scraper'); 
+const axios = require('axios');
 
 // KHÔNG CẦN CLOUDFLARE, GỌI API TRỰC TIẾP TỐC ĐỘ CAO
 const TPB_API_PROXIES = [
@@ -34,7 +34,7 @@ export default async function handler(req, res) {
     let apiData = null;
 
     //Khởi tạo cloudscraper tự động vượt tường lửa Cloudflare
-    const scraper = cloudflareScraper.create_scraper();
+    //const scraper = cloudflareScraper.create_scraper();
 
     // Vòng lặp quét nhanh qua các máy chủ API dự phòng công cộng
     for (const baseApiUrl of TPB_API_PROXIES) {
@@ -48,15 +48,20 @@ export default async function handler(req, res) {
             //const response = await fetch(targetApiUrl, { signal: AbortSignal.timeout(4000) });
             //const json = await response.json();
    	        
+			// Sử dụng axios để gọi API với cấu hình giả lập User-Agent thông thường
+            const response = await axios.get(targetApiUrl, {
+                timeout: 6000, // Đặt 6 giây đảm bảo không bao giờ bị quá hạn mức 10 giây của Vercel
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+            });
+
    	        // Luôn luôn bóc tách lấy biến 'body'
-		    const { response, body } = await cloudflareScraper.get(targetApiUrl, { timeout: 7000 });
+		    //const { response, body } = await cloudflareScraper.get(targetApiUrl, { timeout: 7000 });
 
 		    // Kiểm tra nhanh xem kết nối mạng từ biến response có thành công (200) không
-		    if (response.statusCode === 200) {
-		        
-		        // Chuyển đổi chuỗi thô trong 'body' thành dạng đối tượng JSON
-		        const json = JSON.parse(body);
-		        
+		     if (response && response.data) {
+
 				// Nếu API trả về mảng chứa dữ liệu phim hợp lệ, bốc và thoát vòng lặp ngay
 	            if (Array.isArray(json) && json.length > 0 && json[0].id !== "0") {
 	                apiData = json;

@@ -9,6 +9,12 @@ const TPB_API_PROXIES = [
 const MY_SECRET_KEY = "sudungchinhxacmanay";
 
 export default async function handler(req, res) {
+    // 🌟 THÊM ĐOẠN NÀY: Nếu trình duyệt đòi file favicon.ico, trả về trạng thái rỗng lập tức
+    // Việc này giúp dứt điểm hoàn toàn lỗi Content-Security-Policy màu đỏ trên console
+    if (req.url.includes("favicon.ico")) {
+        res.setHeader("Content-Type", "image/x-icon");
+        return res.status(204).end(); // Mã 204: No Content (Phản hồi thành công không chứa dữ liệu)
+    }
     // Kích hoạt CORS mở rộng
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET");

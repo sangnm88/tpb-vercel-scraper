@@ -1,100 +1,95 @@
-const cloudscraper = require("cloudscraper");
-const cheerio = require("cheerio");
-// Cap nhat them https://apibay.org
-const TPB_PROXIES = [
+// KHÔNG CẦN CLOUDFLARE, GỌI API TRỰC TIẾP TỐC ĐỘ CAO
+const TPB_API_PROXIES = [
     "https://apibay.org",
-    "https://tpb.party",
-    "https://thepiratebay10.org",
-    "https://piratebayproxy.net",
-    "https://thepiratebay.zone"
+    "https://thepiratebay.org",
+    "https://piratebayproxy.net"
 ];
 
-// Mã khóa tự chế để chỉ duy nhất Server Beamup của bạn có quyền gọi sang lấy dữ liệu
+// Mã khóa tự chế để đồng bộ bảo mật với server Beamup của bạn
 const MY_SECRET_KEY = "sudungchinhxacmanay";
 
 module.exports = async (req, res) => {
-    // Bật CORS cho phép kết nối liên mạng
+    // Kích hoạt CORS mở rộng
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
 
     const { query, category, key } = req.query;
 
+    // Xác thực mã bảo mật bí mật
     if (key !== MY_SECRET_KEY) {
         return res.status(401).json({ error: "Unauthorized access key." });
     }
 
+    // Chuyển đổi mã danh mục Stremio sang danh mục số chuẩn của PirateBay (200: Video, 500: Adult)
     let tpbCategory = category === "5070" ? "500" : "200";
-    let htmlData = null;
+    let apiData = null;
 
-    // Vòng lặp xoay vòng proxy đục Cloudflare
-    for (const baseUrl of TPB_PROXIES) {
+    // Vòng lặp quét nhanh qua các máy chủ API dự phòng công cộng
+    for (const baseApiUrl of TPB_API_PROXIES) {
         try {
-            const targetUrl = `${baseUrl}/search/${encodeURIComponent(query)}/1/99/${tpbCategory}`;
-            htmlData = await cloudscraper.get(targetUrl);
+            // Định dạng Endpoint API chuẩn của hệ thống PirateBay (Bỏ qua cào HTML)
+            const targetApiUrl = `${baseApiUrl}/q.php?q=${encodeURIComponent(query)}&cat=${tpbCategory}`;
+            console.log(`[VERCEL API CONNECT] Đang kết nối cổng dữ liệu: ${targetApiUrl}`);
+
+            // Gọi hàm fetch nội bộ của Node.js (Vercel hỗ trợ sẵn không cần cài thêm thư viện)
+            const response = await fetch(targetApiUrl, { signal: AbortSignal.timeout(4000) });
+            const json = await response.json();
             
-            if (htmlData && !htmlData.includes("Cloudflare")) {
+            // Nếu API trả về mảng chứa dữ liệu phim hợp lệ, bốc và thoát vòng lặp ngay
+            if (Array.isArray(json) && json.length > 0 && json[0].id !== "0") {
+                apiData = json;
                 break;
             }
         } catch (err) {
+            console.warn(`[API WARNING] Cổng ${baseApiUrl} nghẽn mạch (${err.message}). Thử nguồn dự phòng...`);
             continue;
         }
     }
 
-    if (!htmlData) return res.status(200).json([]);
+    // Nếu tất cả các cổng API đều không phản hồi dữ liệu, xuất mảng rỗng an toàn
+    if (!apiData) {
+        return res.status(200).json([]);
+    }
 
     try {
-        const $ = cheerio.load(htmlData);
-        const torrents = [];
+        // ÁNH XẠ ĐÓNG GÓI DỮ LIỆU (Đồng bộ 100% cấu trúc cũ của Addon bạn)
+        const formattedTorrents = apiData.map(item => {
+            if (!item.info_hash || item.info_hash === "0000000000000000000000000000000000000000") return null;
 
-        $("table#searchResult tr").each((index, element) => {
-            if (index === 0) return;
+            const title = item.name || "Unknown Movie";
+            const cleanHash = String(item.info_hash).toLowerCase().trim();
+            const seeders = parseInt(item.seeders) || 0;
+            const leechers = parseInt(item.leechers) || 0;
+            
+            // Đổi kích thước byte thô sang định dạng dung lượng GB sạch sẽ
+            const sizeInGB = item.size ? (parseInt(item.size) / 1024 / 1024 / 1024).toFixed(2) : "0.00";
+            const indexer = item.username || "PirateBay-Vercel-API";
+            const imdbId = item.imdb && item.imdb !== "0" ? item.imdb : "none";
 
-            const titleRow = $(element).find("a.detLink");
-            const title = titleRow.text().trim();
-            if (!title) return;
-
-            const magnetUrl = $(element).find("a[href^='magnet:']").attr("href");
-            const descText = $(element).find("font.detDesc").text();
-            const seeders = parseInt($(element).find("td:nth-last-child(2)").text()) || 0;
-            const leechers = parseInt($(element).find("td:last-child").text()) || 0;
-
-            const sizeMatch = descText.match(/Size\s+(\d+\.\d+|\d+)\s*(GiB|MiB|GB|MB)/i);
-            let sizeInGB = "0.00";
-            if (sizeMatch) {
-                const sizeVal = parseFloat(sizeMatch[1]);
-                const sizeUnit = sizeMatch[2].toUpperCase();
-                sizeInGB = sizeUnit.includes("G") ? sizeVal.toFixed(2) : (sizeVal / 1024).toFixed(2);
-            }
-
-            let infoHash = null;
-            if (magnetUrl) {
-                const hashMatch = magnetUrl.match(/btih:([a-fA-F0-9]{40})/i);
-                infoHash = hashMatch ? hashMatch[1].toLowerCase() : null;
-            }
-
+            // Tự động bóc độ phân giải phân tầng
             let resolution = "SD";
             const titleUpper = title.toUpperCase();
             if (titleUpper.includes("4K") || titleUpper.includes("2160P")) resolution = "4K";
             else if (titleUpper.includes("1080P") || titleUpper.includes("FHD")) resolution = "1080p";
             else if (titleUpper.includes("720P") || titleUpper.includes("HD")) resolution = "720p";
 
-            if (infoHash) {
-                // Đóng gói gộp dữ liệu thành chuỗi đóng gói giống hệt hàm cũ của bạn ở Prowlarr
-                const packedData = `${title}||${sizeInGB}||${seeders}||${leechers}||PirateBay-Vercel-Cloud||${resolution}`;
-                torrents.push({
-                    name: packedData,
-                    infoHash: infoHash,
-                    magnet: magnetUrl || `magnet:?xt=urn:btih:${infoHash}`,
-                    resolution: resolution,
-                    seeders: seeders
-                });
-            }
-        });
+            // ĐÓNG GÓI CHUỖI KÝ TỰ ĐẶC BIỆT ĐỒNG BỘ LUỒNG RÃ GÓI TRÊN ADDON.JS CỦA BẠN
+            const packedData = `${title}||${sizeInGB}||${seeders}||${leechers}||${indexer}||${resolution}||${imdbId}`;
 
-        return res.status(200).json(torrents);
+            return {
+                name: packedData,
+                infoHash: cleanHash,
+                magnet: `magnet:?xt=urn:btih:${cleanHash}&dn=${encodeURIComponent(title)}`,
+                resolution: resolution,
+                seeders: seeders
+            };
+        }).filter(t => t !== null);
+
+        // Xuất dải dữ liệu JSON hoàn hảo
+        return res.status(200).json(formattedTorrents);
 
     } catch (parseErr) {
         return res.status(200).json([]);
     }
 };
-

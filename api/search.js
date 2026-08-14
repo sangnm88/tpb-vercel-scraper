@@ -1,7 +1,8 @@
 const cloudscraper = require("cloudscraper");
 const cheerio = require("cheerio");
-
+// Cap nhat them https://apibay.org
 const TPB_PROXIES = [
+    "https://apibay.org",
     "https://tpb.party",
     "https://thepiratebay10.org",
     "https://piratebayproxy.net",

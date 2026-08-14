@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/api/search",
+      "dest": "api/search.js"
+    }
+  ]
+}
+

@@ -8,7 +8,7 @@ const TPB_API_PROXIES = [
 // Mã khóa tự chế để đồng bộ bảo mật với server Beamup của bạn
 const MY_SECRET_KEY = "sudungchinhxacmanay";
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
     // Kích hoạt CORS mở rộng
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET");

@@ -1,3 +1,5 @@
+const cloudflareScraper = require('cloudflare-scraper'); 
+
 // KHÔNG CẦN CLOUDFLARE, GỌI API TRỰC TIẾP TỐC ĐỘ CAO
 const TPB_API_PROXIES = [
     "https://apibay.org",
@@ -31,22 +33,39 @@ export default async function handler(req, res) {
     let tpbCategory = category === "5070" ? "500" : "200";
     let apiData = null;
 
+    //Khởi tạo cloudscraper tự động vượt tường lửa Cloudflare
+    const scraper = cloudflareScraper.create_scraper();
+
     // Vòng lặp quét nhanh qua các máy chủ API dự phòng công cộng
     for (const baseApiUrl of TPB_API_PROXIES) {
         try {
+        	
             // Định dạng Endpoint API chuẩn của hệ thống PirateBay (Bỏ qua cào HTML)
             const targetApiUrl = `${baseApiUrl}/q.php?q=${encodeURIComponent(query)}&cat=${tpbCategory}`;
             console.log(`[VERCEL API CONNECT] Đang kết nối cổng dữ liệu: ${targetApiUrl}`);
 
             // Gọi hàm fetch nội bộ của Node.js (Vercel hỗ trợ sẵn không cần cài thêm thư viện)
-            const response = await fetch(targetApiUrl, { signal: AbortSignal.timeout(4000) });
-            const json = await response.json();
-            
-            // Nếu API trả về mảng chứa dữ liệu phim hợp lệ, bốc và thoát vòng lặp ngay
-            if (Array.isArray(json) && json.length > 0 && json[0].id !== "0") {
-                apiData = json;
-                break;
-            }
+            //const response = await fetch(targetApiUrl, { signal: AbortSignal.timeout(4000) });
+            //const json = await response.json();
+   	        
+   	        // Luôn luôn bóc tách lấy biến 'body'
+		    const { response, body } = await cloudflareScraper.get(targetApiUrl, { timeout: 7000 });
+
+		    // Kiểm tra nhanh xem kết nối mạng từ biến response có thành công (200) không
+		    if (response.statusCode === 200) {
+		        
+		        // Chuyển đổi chuỗi thô trong 'body' thành dạng đối tượng JSON
+		        const json = JSON.parse(body);
+		        
+				// Nếu API trả về mảng chứa dữ liệu phim hợp lệ, bốc và thoát vòng lặp ngay
+	            if (Array.isArray(json) && json.length > 0 && json[0].id !== "0") {
+	                apiData = json;
+	                break;
+	            }
+		    } else {
+		        error_msg = `Máy chủ API trả về lỗi: ${response.statusCode}`;
+		    }
+
         } catch (err) {
             console.warn(`[API WARNING] Cổng ${baseApiUrl} nghẽn mạch (${err.message}). Thử nguồn dự phòng...`);
             continue;

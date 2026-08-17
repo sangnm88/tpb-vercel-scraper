@@ -117,31 +117,57 @@ async function handler(req, res, next) {
         // [VÒNG LẶP DUYỆT TUẦN TỰ TỪNG DÒNG TARGET URL - THÀNH CÔNG THÌ NGỪNG]
         console.log(`🚀 Bắt đầu duyệt tuần tự danh sách gồm ${targetUrls.length} URL...`);
 
+        // -----------------------------------------------------------------
+        // [XỬ LÝ LUỒNG CHẠY CHÍNH VÀ TRẢ KẾT QUẢ ĐÃ BẢO MẬT]
+        console.log(`🚀 Bắt đầu duyệt tuần tự danh sách gồm ${targetUrls.length} URL...`);
+
         for (let i = 0; i < targetUrls.length; i++) {
             const currentTarget = targetUrls[i];
-            
-            // Lấy ngẫu nhiên một proxy từ danh sách (hoặc proxy người dùng truyền vào) cho lượt cào này
             const { proxy: selectedProxy, source: proxySource } = getActiveProxy();
 
             try {
-                console.log(`[Dòng ${i + 1}/${targetUrls.length}] Đang cào URL: ${currentTarget} | Sử dụng Proxy: ${selectedProxy || 'Mạng trực tiếp'}`);
+                // Log nội bộ trên máy chủ (Chỉ hiển thị trong Vercel Log / Docker Log, client không thấy)
+                console.log(`[Dòng ${i + 1}] Đang cào: ${currentTarget} | Proxy: ${selectedProxy || 'Mạng trực tiếp'}`);
                 
                 const data = await scrapeSingleUrl(currentTarget, selectedProxy);
                 
-                // NẾU CÓ KẾT QUẢ THÀNH CÔNG: Trả về client ngay lập tức và dừng toàn bộ vòng lặp
-                console.log(`✅ Đã lấy được dữ liệu thành công tại dòng ${i + 1}. Kết thúc tiến trình.`);
+                // --- XỬ LÝ MÃ HÓA / ẨN THÔNG TIN PROXY TRƯỚC KHI TRẢ VỀ CLIENT ---
+                let proxyInfoForClient = 'none_direct_connection';
+                
+                if (selectedProxy) {
+                    // Nếu đang chạy ở Local/Docker Development, cho phép xem toàn bộ để debug
+                    if (process.env.NODE_ENV === 'development' || process.env.DOCKER_ENV === 'true') {
+                        proxyInfoForClient = selectedProxy;
+                    } else {
+                        // Nếu chạy trên Vercel Production: Chỉ trả về định dạng ẩn danh (Ví dụ: http://***:***@1.2.3.4:8080)
+                        try {
+                            const urlObj = new URL(selectedProxy);
+                            // Che giấu phần username và password nếu có
+                            if (urlObj.username || urlObj.password) {
+                                proxyInfoForClient = `${urlObj.protocol}//***:***@${urlObj.host}`;
+                            } else {
+                                // Nếu proxy không có pass, chỉ ẩn một phần IP/Port để nhận diện
+                                proxyInfoForClient = `${urlObj.protocol}//${urlObj.host.replace(/[^.:]/g, '*')}`;
+                            }
+                        } catch (e) {
+                            proxyInfoForClient = 'protected_masked_proxy';
+                        }
+                    }
+                }
+
+                // Trả kết quả an toàn về cho người dùng
+                console.log(`✅ Thành công tại dòng ${i + 1}. Trả dữ liệu an toàn về client.`);
                 return res.status(200).json({
                     success: true,
                     matched_line: singleTarget ? 'direct' : i + 1,
                     url: currentTarget,
-                    proxy_used: selectedProxy || 'none_direct_connection',
+                    proxy_used: proxyInfoForClient, // <--- THÔNG TIN ĐÃ ĐƯỢC BẢO VỆ
                     proxy_source: proxySource,
                     data: data
                 });
 
             } catch (error) {
-                // NẾU LỖI: Log lại lỗi và để vòng lặp tiếp tục chạy sang dòng URL tiếp theo
-                console.warn(`❌ Lỗi tại dòng ${i + 1} (${currentTarget}): ${error.message}. Thử dòng kế tiếp...`);
+                console.warn(`❌ Lỗi tại dòng ${i + 1} (${currentTarget}): ${error.message}`);
             }
         }
 
@@ -150,6 +176,7 @@ async function handler(req, res, next) {
             success: false,
             error: "Đã duyệt hết tất cả các dòng URL trong list.txt nhưng không trang nào cào thành công."
         });
+
 
     } catch (globalError) {
         next(globalError);

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Quản Lý Proxy Đa Năng</title>
+    <!-- Nạp file CSS tách riêng -->
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div class="container">
+        <h2>🔍 Proxy Client & Target Routing</h2>
+        
+        <div class="form-group">
+            <label>Cấu hình Proxy Server:</label>
+            <div class="proxy-grid">
+                <div>
+                    <select id="proxyProtocol">
+                        <option value="http://">http://</option>
+                        <option value="https://">https://</option>
+                        <option value="socks4://">socks4://</option>
+                        <option value="socks5://">socks5://</option>
+                    </select>
+                </div>
+                <div>
+                    <input type="text" id="proxyIp" placeholder="Ví dụ: 43.167.165.123" value="43.167.165.123">
+                </div>
+                <div>
+                    <input type="text" id="proxyPort" placeholder="Port" value="10808">
+                </div>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="targetUrl">Đường dẫn đích (Target URL):</label>
+            <input type="text" id="targetUrl" placeholder="Ví dụ: https://ipinfo.io" value="https://ipinfo.io">
+            <button id="btnScrape">🔄 Cào Link Dự Phòng (The Pirate Bay)</button>
+            <div id="mirrorContainer" style="display:none;">
+                <div class="mirror-list" id="mirrorList"></div>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="query">Từ khóa tìm kiếm (Query):</label>
+            <input type="text" id="query" placeholder="Không bắt buộc">
+        </div>
+
+        <div class="form-group">
+            <label for="category">Danh mục (Category):</label>
+            <input type="text" id="category" placeholder="Không bắt buộc">
+        </div>
+
+        <div class="btn-group">
+            <button id="btnProxy">🛡️ Check Sống</button>
+            <button id="btnAnon">🔒 Check Ẩn Danh</button>
+            <button id="btnSearch">🚀 Gửi Request</button>
+        </div>
+
+        <div id="resultStatus" class="result-box"></div>
+        <div id="apiResult" style="display:none; margin-top: 15px;">
+            <label>Kết quả phản hồi JSON:</label>
+            <pre><code id="jsonOutput"></code></pre>
+        </div>
+    </div>
+
+    <script>
+    function getFullProxyString() {
+        const protocol = document.getElementById('proxyProtocol').value;
+        const ip = document.getElementById('proxyIp').value.trim();
+        const port = document.getElementById('proxyPort').value.trim();
+        if (!ip || !port) return null;
+        return `${protocol}${ip}:${port}`;
+    }
+
+    const statusBox = document.getElementById('resultStatus');
+    const apiResult = document.getElementById('apiResult');
+    const jsonOutput = document.getElementById('jsonOutput');
+
+    document.getElementById('btnAnon').addEventListener('click', async () => {
+        const fullProxyStr = getFullProxyString();
+        if (!fullProxyStr) {
+            statusBox.style.display = 'block'; statusBox.className = 'result-box error';
+            statusBox.innerHTML = '❌ Vui lòng điền đầy đủ thông tin IP và Cổng (Port).'; return;
+        }
+        statusBox.style.display = 'block'; statusBox.className = 'result-box';
+        statusBox.innerHTML = '⏳ Đang phân tích kỹ thuật các gói Header để chấm điểm ẩn danh...';
+        apiResult.style.display = 'none';
+        try {
+            const res = await fetch(`/api/check-anonymity?proxy=${encodeURIComponent(fullProxyStr)}`);
+            const result = await res.json();
+            if (result.success) {
+                let alertClass = 'success';
+                if(result.data.level.includes('Anonymous')) alertClass = 'warning';
+                if(result.data.level.includes('Transparent')) alertClass = 'error';
+                statusBox.className = `result-box ${alertClass}`;
+                statusBox.innerHTML = `<b>🛡️ Cấp độ ẩn danh: ${result.data.level}</b><br>📝 Chi tiết: ${result.data.description}<br>🌐 IP thoát ra: ${result.data.proxy_ip}`;
+                apiResult.style.display = 'block';
+                jsonOutput.textContent = JSON.stringify(result.data.headers_sent, null, 2);
+            } else {
+                statusBox.className = 'result-box error';
+                statusBox.innerHTML = `<b>❌ Phân tích thất bại:</b> ${result.error}`;
+            }
+        } catch (err) { statusBox.className = 'result-box error'; statusBox.innerHTML = '❌ Lỗi kết nối tới Node.js Server.'; }
+    });
+
+    document.getElementById('btnScrape').addEventListener('click', async () => {
+        const btn = document.getElementById('btnScrape');
+        const mirrorContainer = document.getElementById('mirrorContainer');
+        const mirrorList = document.getElementById('mirrorList');
+        btn.disabled = true; btn.innerText = '⏳ Đang cào dữ liệu...';
+        mirrorContainer.style.display = 'none'; mirrorList.innerHTML = '';
+        try {
+            const res = await fetch('/api/get-mirrors');
+            const result = await res.json();
+            if (result.success && result.data.length > 0) {
+                mirrorContainer.style.display = 'block';
+                result.data.forEach(link => {
+                    const div = document.createElement('div'); div.className = 'mirror-item'; div.innerText = link;
+                    div.addEventListener('click', () => { document.getElementById('targetUrl').value = link; });
+                    mirrorList.appendChild(div);
+                });
+                btn.innerText = `🔄 Cào thành công (${result.data.length} link).`;
+            } else { btn.innerText = '🔄 Cào Thất Bại'; }
+        } catch (err) { btn.innerText = '🔄 Cào Thất Bại'; } finally { btn.disabled = false; }
+    });
+
+    document.getElementById('btnProxy').addEventListener('click', async () => {
+        const fullProxyStr = getFullProxyString();
+        if (!fullProxyStr) { statusBox.style.display = 'block'; statusBox.className = 'result-box error'; statusBox.innerHTML = '❌ Thiếu thông tin.'; return; }
+        statusBox.style.display = 'block'; statusBox.className = 'result-box'; statusBox.innerHTML = '⏳ Đang kiểm tra...'; apiResult.style.display = 'none';
+        try {
+            const res = await fetch(`/api/check-proxy?proxy=${encodeURIComponent(fullProxyStr)}`);
+            const result = await res.json();
+            if (result.success) {
+                statusBox.className = 'result-box success';
+                statusBox.innerHTML = `<b>✅ ${result.message}</b><br>🌍 Quốc gia: ${result.proxy_info.country} | IP: ${result.proxy_info.ip}`;
+            } else { statusBox.className = 'result-box error'; statusBox.innerHTML = `<b>❌ Lỗi:</b> ${result.error}`; }
+        } catch (err) { statusBox.className = 'result-box error'; statusBox.innerHTML = '❌ Lỗi server.'; }
+    });
+
+    // ==================== ĐOẠN ĐƯỢC CẬP NHẬT TỐI ƯU ====================
+    document.getElementById('btnSearch').addEventListener('click', async () => {
+        const fullProxyStr = getFullProxyString(); 
+        const targetUrl = document.getElementById('targetUrl').value.trim();
+        const query = document.getElementById('query').value.trim(); 
+        const category = document.getElementById('category').value.trim();
+        
+        // CHỈ bắt buộc điền URL Đích (Vì hệ thống có thể chạy không cần proxy khi USE_PROXY = false)
+        if (!targetUrl) { 
+            statusBox.style.display = 'block'; 
+            statusBox.className = 'result-box error'; 
+            statusBox.innerHTML = '❌ Vui lòng điền URL đích (Target URL).'; 
+            return; 
+        }
+        
+        statusBox.style.display = 'block'; 
+        statusBox.className = 'result-box'; 
+        statusBox.innerHTML = '⏳ Đang gửi request qua Body JSON...'; 
+        apiResult.style.display = 'none';
+        
+        try {
+            // Gom toàn bộ tham số truyền vào một Body Object duy nhất
+            const payload = {
+                proxy: fullProxyStr, // Sẽ gửi chuỗi proxy hoặc null nếu ô nhập trống
+                target: targetUrl,
+                query: query,
+                category: category
+            };
+
+            // Gọi API bằng phương thức POST truyền dữ liệu ngầm lên Vercel/Local
+            const res = await fetch('/api/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            }); 
+            
+            const result = await res.json();
+            if (result.success) {
+                statusBox.className = 'result-box success'; 
+                statusBox.innerHTML = `<b>✅ ${result.message}</b>`;
+                apiResult.style.display = 'block'; 
+                jsonOutput.textContent = JSON.stringify(result.data || {}, null, 2);
+            } else { 
+                statusBox.className = 'result-box error'; 
+                statusBox.innerHTML = `<b>❌ Thất bại:</b> ${result.error}`; 
+            }
+        } catch (err) { 
+            statusBox.className = 'result-box error'; 
+            statusBox.innerHTML = '❌ Lỗi kết nối tới API.'; 
+        }
+    });
+</script>
+
+</body>
+</html>

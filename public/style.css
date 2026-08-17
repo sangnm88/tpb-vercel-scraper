@@ -1,0 +1,107 @@
+body { 
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+    background-color: #f4f6f9; 
+    margin: 0; 
+    padding: 40px; 
+    display: flex; 
+    justify-content: center; 
+}
+.container { 
+    background: white; 
+    padding: 30px; 
+    border-radius: 12px; 
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05); 
+    width: 100%; 
+    max-width: 550px; 
+}
+h2 { 
+    color: #333; 
+    margin-top: 0; 
+    border-bottom: 2px solid #eee; 
+    padding-bottom: 10px; 
+}
+.form-group { 
+    margin-bottom: 15px; 
+}
+label { 
+    display: block; 
+    font-weight: bold; 
+    margin-bottom: 5px; 
+    color: #555; 
+}
+input[type="text"], select { 
+    width: 100%; 
+    padding: 10px; 
+    border: 1px solid #ccc; 
+    border-radius: 6px; 
+    box-sizing: border-box; 
+    font-size: 14px; 
+    background-color: #fff; 
+}
+.proxy-grid { 
+    display: grid; 
+    grid-template-columns: 100px 1fr 100px; 
+    gap: 10px; 
+}
+.btn-group { 
+    display: grid; 
+    grid-template-columns: 1fr 1fr 1fr; 
+    gap: 10px; 
+    margin-top: 15px; 
+}
+button { 
+    color: white; 
+    border: none; 
+    padding: 12px 10px; 
+    border-radius: 6px; 
+    cursor: pointer; 
+    font-size: 13px; 
+    font-weight: bold; 
+    transition: background 0.2s; 
+}
+#btnProxy { background-color: #17a2b8; }
+#btnProxy:hover { background-color: #138496; }
+#btnAnon { background-color: #fd7e14; }
+#btnAnon:hover { background-color: #e36a07; }
+#btnSearch { background-color: #28a745; }
+#btnSearch:hover { background-color: #218838; }
+#btnScrape { background-color: #6c757d; width: 100%; margin-top: 5px; }
+#btnScrape:hover { background-color: #5a6268; }
+.result-box { 
+    margin-top: 20px; 
+    padding: 15px; 
+    border-radius: 6px; 
+    display: none; 
+    font-size: 14px; 
+    line-height: 1.5; 
+}
+.success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+.warning { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+pre { 
+    background: #272822; 
+    color: #f8f8f2; 
+    padding: 10px; 
+    border-radius: 6px; 
+    overflow-x: auto; 
+    font-size: 13px; 
+}
+.mirror-list { 
+    max-height: 150px; 
+    overflow-y: auto; 
+    border: 1px solid #ddd; 
+    border-radius: 6px; 
+    padding: 10px; 
+    background: #fafafa; 
+    margin-top: 8px; 
+}
+.mirror-item { 
+    padding: 6px 10px; 
+    cursor: pointer; 
+    border-bottom: 1px solid #eee; 
+    color: #007bff; 
+    text-decoration: underline; 
+    font-size: 13px; 
+}
+.mirror-item:hover { background-color: #e9ecef; }
+

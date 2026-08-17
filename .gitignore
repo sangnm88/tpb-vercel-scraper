@@ -1,0 +1,25 @@
+# Dependency của NodeJS (Thư mục này rất nặng, không bao giờ được push)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Biến môi trường chứa thông tin bảo mật/cấu hình riêng tư
+.env
+
+# Các tệp tin dữ liệu cào cục bộ (Local data)
+# Nếu bạn muốn danh sách proxy và target trong proxy.txt / list.txt là bí mật, hãy bỏ dấu thăng (#) ở 2 dòng dưới:
+Dockerfile
+docker-compose.yml
+proxy.txt
+README.md
+# list.txt
+
+# Log hệ thống của Docker
+.docker/
+*.log
+
+# Tệp cấu hình hệ điều hành tự sinh ra khi duyệt thư mục
+.DS_Store
+Thumbs.db
+

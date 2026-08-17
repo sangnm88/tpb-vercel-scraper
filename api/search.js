@@ -1,125 +1,237 @@
+const http = require('http');
+const url = require('url');
+const fs = require('fs'); // Thêm thư viện đọc file hệ thống
+const path = require('path'); // Thêm thư viện xử lý đường dẫn file
 const axios = require('axios');
+const { createAgent, checkProxyStatus, scrapePirateBayMirrors, checkProxyAnonymity } = require('../utils/proxy');
+const USE_PROXY = false;
 
-// KHÔNG CẦN CLOUDFLARE, GỌI API TRỰC TIẾP TỐC ĐỘ CAO
-const TPB_API_PROXIES = [
-    "https://apibay.org",
-    "https://thepiratebay.org",
-    "https://piratebayproxy.net"
-];
+const express = require('express');
 
-// Mã khóa tự chế để đồng bộ bảo mật với server Beamup của bạn
-const MY_SECRET_KEY = "sudungchinhxacmanay";
+// Khởi tạo ứng dụng Express
+const app = express();
 
-export default async function handler(req, res) {
-    // 🌟 THÊM ĐOẠN NÀY: Nếu trình duyệt đòi file favicon.ico, trả về trạng thái rỗng lập tức
-    // Việc này giúp dứt điểm hoàn toàn lỗi Content-Security-Policy màu đỏ trên console
-    if (req.url.includes("favicon.ico")) {
-        res.setHeader("Content-Type", "image/x-icon");
-        return res.status(204).end(); // Mã 204: No Content (Phản hồi thành công không chứa dữ liệu)
-    }
-    // Kích hoạt CORS mở rộng
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET");
-    res.setHeader("Content-Type", "application/json; charset=utf-8");
+// Middleware cấu hình tự động parse JSON body và Form data (nếu sau này cần)
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-    const { query, category, key } = req.query;
-
-    // Xác thực mã bảo mật bí mật
-    if (key !== MY_SECRET_KEY) {
-        return res.status(401).json({ error: "Unauthorized access key." });
-    }
-
-    // Chuyển đổi mã danh mục Stremio sang danh mục số chuẩn của PirateBay (200: Video, 500: Adult)
-    let tpbCategory = category === "5070" ? "500" : "200";
-    let apiData = null;
-
-    //Khởi tạo cloudscraper tự động vượt tường lửa Cloudflare
-    //const scraper = cloudflareScraper.create_scraper();
-
-    // Vòng lặp quét nhanh qua các máy chủ API dự phòng công cộng
-    for (const baseApiUrl of TPB_API_PROXIES) {
-        try {
-        	
-            // Định dạng Endpoint API chuẩn của hệ thống PirateBay (Bỏ qua cào HTML)
-            const targetApiUrl = `${baseApiUrl}/q.php?q=${encodeURIComponent(query)}&cat=${tpbCategory}`;
-            console.log(`[VERCEL API CONNECT] Đang kết nối cổng dữ liệu: ${targetApiUrl}`);
-
-            // Gọi hàm fetch nội bộ của Node.js (Vercel hỗ trợ sẵn không cần cài thêm thư viện)
-            //const response = await fetch(targetApiUrl, { signal: AbortSignal.timeout(4000) });
-            //const json = await response.json();
-   	        
-			// Sử dụng axios để gọi API với cấu hình giả lập User-Agent thông thường
-            const response = await axios.get(targetApiUrl, {
-                timeout: 6000, // Đặt 6 giây đảm bảo không bao giờ bị quá hạn mức 10 giây của Vercel
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-            });
-
-   	        // Luôn luôn bóc tách lấy biến 'body'
-		    //const { response, body } = await cloudflareScraper.get(targetApiUrl, { timeout: 7000 });
-
-		    // Kiểm tra nhanh xem kết nối mạng từ biến response có thành công (200) không
-		     if (response && response.data) {
-
-				// Nếu API trả về mảng chứa dữ liệu phim hợp lệ, bốc và thoát vòng lặp ngay
-	            if (Array.isArray(json) && json.length > 0 && json[0].id !== "0") {
-	                apiData = json;
-	                break;
-	            }
-		    } else {
-		        error_msg = `Máy chủ API trả về lỗi: ${response.statusCode}`;
-		    }
-
-        } catch (err) {
-            console.warn(`[API WARNING] Cổng ${baseApiUrl} nghẽn mạch (${err.message}). Thử nguồn dự phòng...`);
-            continue;
-        }
-    }
-
-    // Nếu tất cả các cổng API đều không phản hồi dữ liệu, xuất mảng rỗng an toàn
-    if (!apiData) {
-        return res.status(200).json([]);
-    }
-
+async function handler(req, res, next) {
     try {
-        // ÁNH XẠ ĐÓNG GÓI DỮ LIỆU (Đồng bộ 100% cấu trúc cũ của Addon bạn)
-        const formattedTorrents = apiData.map(item => {
-            if (!item.info_hash || item.info_hash === "0000000000000000000000000000000000000000") return null;
+        const params = { ...req.query, ...req.body };
+        let { target: singleTarget, proxy: userProxy, query: searchQuery, category, ...dynamicParams } = params;
 
-            const title = item.name || "Unknown Movie";
-            const cleanHash = String(item.info_hash).toLowerCase().trim();
-            const seeders = parseInt(item.seeders) || 0;
-            const leechers = parseInt(item.leechers) || 0;
-            
-            // Đổi kích thước byte thô sang định dạng dung lượng GB sạch sẽ
-            const sizeInGB = item.size ? (parseInt(item.size) / 1024 / 1024 / 1024).toFixed(2) : "0.00";
-            const indexer = item.username || "PirateBay-Vercel-API";
-            const imdbId = item.imdb && item.imdb !== "0" ? item.imdb : "none";
+        const axiosParams = { q: searchQuery || '', cat: category || '', ...dynamicParams };
 
-            // Tự động bóc độ phân giải phân tầng
-            let resolution = "SD";
-            const titleUpper = title.toUpperCase();
-            if (titleUpper.includes("4K") || titleUpper.includes("2160P")) resolution = "4K";
-            else if (titleUpper.includes("1080P") || titleUpper.includes("FHD")) resolution = "1080p";
-            else if (titleUpper.includes("720P") || titleUpper.includes("HD")) resolution = "720p";
+        // -----------------------------------------------------------------
+        // [HÀM TRỢ GIÚP 1: LẤY PROXY LINH ĐỘNG (RANDOM NẾU DÙNG FILE)]
+        function getActiveProxy() {
+            // Nếu người dùng truyền proxy trực tiếp qua API, ưu tiên dùng luôn
+            if (userProxy) {
+                return { proxy: userProxy, source: 'direct_param' };
+            }
 
-            // ĐÓNG GÓI CHUỖI KÝ TỰ ĐẶC BIỆT ĐỒNG BỘ LUỒNG RÃ GÓI TRÊN ADDON.JS CỦA BẠN
-            const packedData = `${title}||${sizeInGB}||${seeders}||${leechers}||${indexer}||${resolution}||${imdbId}`;
+            // Nếu không truyền, tìm kiếm ngẫu nhiên trong file proxy.txt
+            const proxyFilePath = path.join(process.cwd(), 'proxy.txt');
+            if (fs.existsSync(proxyFilePath)) {
+                try {
+                    const fileContent = fs.readFileSync(proxyFilePath, 'utf8');
+                    const proxyList = fileContent.split('\n')
+                                                 .map(p => p.trim())
+                                                 .filter(p => p.length > 0 && !p.startsWith('#'));
 
-            return {
-                name: packedData,
-                infoHash: cleanHash,
-                magnet: `magnet:?xt=urn:btih:${cleanHash}&dn=${encodeURIComponent(title)}`,
-                resolution: resolution,
-                seeders: seeders
+                    if (proxyList.length > 0) {
+                        const randomIndex = Math.floor(Math.random() * proxyList.length);
+                        return { proxy: proxyList[randomIndex], source: 'proxy_txt_file' };
+                    }
+                } catch (fileErr) {
+                    console.error('⚠️ Lỗi đọc file proxy.txt:', fileErr.message);
+                }
+            }
+
+            // Mặc định không dùng proxy nếu cả 2 điều kiện trên không thỏa mãn
+            return { proxy: null, source: 'none' };
+        }
+
+        // -----------------------------------------------------------------
+        // [HÀM TRỢ GIÚP 2: CÀO MỘT URL ĐƠN LẺ VỚI PROXY ĐƯỢC CHỈ ĐỊNH]
+        async function scrapeSingleUrl(url, targetProxy) {
+            const browserHeaders = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Referer': 'https://google.com'
             };
-        }).filter(t => t !== null);
 
-        // Xuất dải dữ liệu JSON hoàn hảo
-        return res.status(200).json(formattedTorrents);
+            if (targetProxy) {
+                // Kiểm tra trạng thái proxy trước khi cào dữ liệu
+                const checkResult = await checkProxyStatus(targetProxy);
+                if (!checkResult.success) {
+                    throw new Error(`Proxy [${targetProxy}] đã chết.`);
+                }
 
-    } catch (parseErr) {
-        return res.status(200).json([]);
+                const customAgent = createAgent(targetProxy);
+                const response = await axios.get(url, {
+                    httpsAgent: customAgent,
+                    httpAgent: customAgent,
+                    proxy: false,
+                    timeout: 7000,
+                    params: axiosParams,
+                    headers: browserHeaders
+                });
+                return response.data;
+            } else {
+                const response = await axios.get(url, { 
+                    timeout: 7000, 
+                    params: axiosParams,
+                    headers: browserHeaders
+                });
+                return response.data;
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // [XỬ LÝ DANH SÁCH TARGET URL]
+        let targetUrls = [];
+
+        if (singleTarget) {
+            // Nếu người dùng truyền đích danh target qua API
+            targetUrls.push(singleTarget);
+        } else {
+            // Nếu không truyền target, đọc toàn bộ danh sách từ file list.txt
+            const listFilePath = path.join(process.cwd(), 'list.txt');
+            if (!fs.existsSync(listFilePath)) {
+                return res.status(400).json({ success: false, error: 'URL đích trống và không tìm thấy tệp tin list.txt.' });
+            }
+
+            const fileContent = fs.readFileSync(listFilePath, 'utf8');
+            targetUrls = fileContent.split('\n')
+                                    .map(url => url.trim())
+                                    .filter(url => url.length > 0 && !url.startsWith('#'));
+
+            if (targetUrls.length === 0) {
+                return res.status(400).json({ success: false, error: 'Tệp tin list.txt không chứa URL hợp lệ nào.' });
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // [VÒNG LẶP DUYỆT TUẦN TỰ TỪNG DÒNG TARGET URL - THÀNH CÔNG THÌ NGỪNG]
+        console.log(`🚀 Bắt đầu duyệt tuần tự danh sách gồm ${targetUrls.length} URL...`);
+
+        for (let i = 0; i < targetUrls.length; i++) {
+            const currentTarget = targetUrls[i];
+            
+            // Lấy ngẫu nhiên một proxy từ danh sách (hoặc proxy người dùng truyền vào) cho lượt cào này
+            const { proxy: selectedProxy, source: proxySource } = getActiveProxy();
+
+            try {
+                console.log(`[Dòng ${i + 1}/${targetUrls.length}] Đang cào URL: ${currentTarget} | Sử dụng Proxy: ${selectedProxy || 'Mạng trực tiếp'}`);
+                
+                const data = await scrapeSingleUrl(currentTarget, selectedProxy);
+                
+                // NẾU CÓ KẾT QUẢ THÀNH CÔNG: Trả về client ngay lập tức và dừng toàn bộ vòng lặp
+                console.log(`✅ Đã lấy được dữ liệu thành công tại dòng ${i + 1}. Kết thúc tiến trình.`);
+                return res.status(200).json({
+                    success: true,
+                    matched_line: singleTarget ? 'direct' : i + 1,
+                    url: currentTarget,
+                    proxy_used: selectedProxy || 'none_direct_connection',
+                    proxy_source: proxySource,
+                    data: data
+                });
+
+            } catch (error) {
+                // NẾU LỖI: Log lại lỗi và để vòng lặp tiếp tục chạy sang dòng URL tiếp theo
+                console.warn(`❌ Lỗi tại dòng ${i + 1} (${currentTarget}): ${error.message}. Thử dòng kế tiếp...`);
+            }
+        }
+
+        // TRƯỜNG HỢP TOÀN BỘ DANH SÁCH TARGET ĐỀU BỊ LỖI
+        return res.status(502).json({
+            success: false,
+            error: "Đã duyệt hết tất cả các dòng URL trong list.txt nhưng không trang nào cào thành công."
+        });
+
+    } catch (globalError) {
+        next(globalError);
     }
-};
+}
+
+
+// BỎ QUA VÀ XỬ LÝ NHANH REQUEST FAVICON CỦA TRÌNH DUYỆT
+app.get('/favicon.ico', (req, res) => {
+    res.status(204).end(); 
+});
+
+// Trả về file index.html khi vào trang chủ
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Trả về file style.css độc lập
+app.get('/style.css', (req, res) => {
+    res.sendFile(path.join(__dirname, 'style.css'));
+});
+
+// API Check Anonymity
+app.get('/api/check-anonymity', async (req, res) => {
+    try {
+        const userProxy = req.query?.proxy || '';
+        const anonResult = await checkProxyAnonymity(userProxy);
+        
+        if (anonResult.success) {
+            res.status(200).json({ success: true, data: anonResult });
+        } else {
+            res.status(500).json({ success: false, error: anonResult.error });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API Get Mirrors
+app.get('/api/get-mirrors', async (req, res) => {
+    try {
+        const mirrorLinks = await scrapePirateBayMirrors();
+        res.status(200).json({ success: true, data: mirrorLinks });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// API Check Proxy Status
+app.get('/api/check-proxy', async (req, res) => {
+    try {
+        const userProxy = req.query?.proxy || '';
+        const checkResult = await checkProxyStatus(userProxy);
+        
+        if (checkResult.success) {
+            res.status(200).json({ success: true, message: checkResult.message, proxy_info: checkResult.details });
+        } else {
+            res.status(500).json({ success: false, error: checkResult.message, details: checkResult.details?.error });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Thay đổi route thành POST để nhận Body dữ liệu
+app.all('/api/search', async (req, res, next) => {
+    await handler(req, res, next);
+});
+
+
+// Middleware xử lý Lỗi 404 Not Found cho các route không tồn tại
+app.use((req, res) => {
+    res.status(404).json({ error: 'Not Found' });
+});
+
+// KHỞI CHẠY EXPRESS SERVER LOCAL / DOCKER
+if (require.main === module || process.env.DOCKER_ENV === 'true') {
+    const PORT = process.env.PORT || 5050;
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 Hệ thống chạy tối ưu modular mở tại: http://localhost:${PORT}`);
+    });
+}
+
+// Export app để Vercel có thể nhận diện và chạy dưới dạng Serverless Function khi deploy
+module.exports = app;

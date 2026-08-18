@@ -1,1 +1,2 @@
+https://tpb.party/search/{query}/{page}/99/{category}
 https://apibay.org/q.php?
